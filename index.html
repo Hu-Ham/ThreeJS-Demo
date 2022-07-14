@@ -1,0 +1,429 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>Three.js Demo</title>
+<link rel="stylesheet" href="demo.css">
+<script src="../script/demo-core.js"></script>
+<script src="../script/three.min.js"></script>
+<script src="../script/threejs/OrbitControls.js"></script>
+<script src="../script/slider-canvas.js"></script>
+<video id="video" playsinline webkit-playsinline muted loop autoplay width="320" 
+height="240" src="../textures/animation.mp4" style="display: none;"></video>
+<video id="video2" playsinline webkit-playsinline muted loop autoplay width="320" 
+height="240" src="../textures/earthanimation.mp4" style="display: none;"></video>
+<script>
+
+/*
+PROJECT 3
+HUGH HAMILTON
+PENULTIMATE PROJECT
+*/
+/*
+ *
+ *
+ */
+
+"use strict";
+
+var scene, camera, renderer;  // Three.js rendering basics.
+
+var canvas;  // The canvas on which the image is rendered.
+
+//(Copied from mesh-animation.html)
+var controls;  // An OrbitControls object that is used to implement
+               // rotation of the scene using the mouse.  (It actually rotates
+               // the camera around the scene.)
+
+
+var animating = false;  // This is set to true when an animation is running.
+
+var base;  // The base, on which the shadows are cast.
+
+//Various objects in the scene:
+var cube, earth, moon, earthRotator, shape; 
+
+//Various light sources:
+var aboveLight, cubeLight, moonLight, shapeLight;
+
+var MAX_RADIUS = 20;  // Largest radius distance from slider bar
+var radius = 9; //default Earth distance from cube
+var radiusSlider;
+
+function render() {  
+    renderer.render(scene,camera);
+}
+/*  Create the scene graph.  This function is called once, as soon as the page loads.
+ *  The renderer has already been created before this function is called.
+ */
+function createWorld() {
+	scene = new THREE.Scene();
+    renderer.setClearColor("gray");
+	//Lines 66 through 99 are largely adapted from the createWorld() function in shadows.html
+    camera = new THREE.PerspectiveCamera(45, canvas.width/canvas.height, 0.1, 100);
+    var light = new THREE.PointLight(0xffffff, 0.3);  // A dim viewpoint light, so there is always at least some illumination.
+    camera.position.z = 35;
+    camera.position.y = 15;
+    camera.lookAt( new THREE.Vector3(0,0,0));
+    camera.add(light);  // viewpoint light moves with camera
+    scene.add(camera);
+
+    renderer.setSize( canvas.width, canvas.height );
+    
+    /* The base on which the objects rest. */
+    base = new THREE.Mesh( 
+         new THREE.PlaneGeometry(25,25),
+         new THREE.MeshPhongMaterial({ color:"white" })
+    );
+    base.rotation.x = -Math.PI/2;  // Rotate so it's parallel to xz-plane.
+    base.position.y = -3;  // The "floor" is lowered 3 units.
+    base.receiveShadow = true;  // This allows shadows to be rendered onto the base.
+    scene.add(base);
+    /* Due to a bug(?) in three.js, shadows are rendered onto the back (non-illuminated) side
+       of the base.  So, instead of making the base material two-sided, I hide the back with
+       another plane that does not receive shadows. */
+    var baseBack = new THREE.Mesh(
+         new THREE.PlaneGeometry(25,25),
+         new THREE.MeshPhongMaterial({ color:"white" })
+    );
+    baseBack.rotation.x = Math.PI/2;
+    baseBack.position.y = -3.01;
+    scene.add(baseBack);
+
+	//Courtesy of a comment on this thread:
+	//https://stackoverflow.com/questions/18383470/using-video-as-texture-with-three-js
+	//Get your video element:
+	const video = document.getElementById("video");
+	video.onloadeddata = function () {
+		video.play();
+	};
+	//Video2 modified from the gif downloaded here:
+	//https://commons.wikimedia.org/wiki/File:Earth-satellite-seasons.gif
+	const video2 = document.getElementById("video2");
+	video2.onloadeddata = function () {
+		video2.play();
+	};
+
+	//Create your video texture:
+	const videoTexture = new THREE.VideoTexture(video);
+	videoTexture.needsUpdate = true;
+	const videoMaterial = new THREE.MeshPhongMaterial({
+		map: videoTexture,
+		side: THREE.FrontSide,
+		toneMapped: false,
+		//emissive: "yellow",
+		//emissiveIntensity: 0.3
+	});
+	videoMaterial.needsUpdate = true;
+
+	const video2Texture = new THREE.VideoTexture(video2);
+	video2Texture.needsUpdate = true;
+	const video2Material = new THREE.MeshPhongMaterial({
+		map: video2Texture,
+		side: THREE.FrontSide,
+		toneMapped: false,
+	});
+	video2Material.needsUpdate = true;
+
+	cube = new THREE.Object3D();
+	var cubeMesh = new THREE.Mesh( //A cube 
+		new THREE.BoxGeometry(5,5,5),
+		videoMaterial
+	);
+	cubeLight = new THREE.Object3D();
+	var cubeLight1 = new THREE.PointLight( "yellow", 0.2 );
+	var cubeLight2 = new THREE.PointLight( "blue", 0.3 );
+	cubeLight2.position.set(0,9,0);
+	cubeLight.add(cubeLight1);
+	cubeLight.add(cubeLight2);
+	cube.add(cubeMesh);
+	cube.add(cubeLight);
+	cube.position.set(0,5,0);
+
+	scene.add(cube);
+
+	earthRotator = new THREE.Object3D();
+	earth = new THREE.Mesh( //The Earth, approximately 
+		new THREE.SphereGeometry(2.5, 30, 20),
+		video2Material
+	);
+	//earth.position.set(7,2,0);
+	earthRotator.add(earth);
+	//scene.add(earth);
+
+	//Moon texture from this link:
+	//https://commons.wikimedia.org/wiki/File:Lunar_Earthside_Map_-_3rd_Edition_-_1976_-_NASA.jpg
+	const moonTexture = new THREE.TextureLoader().load( "../textures/lunarSurface.png" );
+	const moonMaterial = new THREE.MeshPhongMaterial({
+		map: moonTexture,
+		side: THREE.FrontSide,
+		emissive: "white",
+		emissiveIntensity: 0.5,
+		toneMapped: false,});
+	moon = new THREE.Mesh( //The moon, approximately 
+		new THREE.SphereGeometry(1, 30, 20),
+		moonMaterial
+	);
+	moonLight = new THREE.PointLight( "yellow", 0.8 );
+	moonLight.position.set(5,0,0);
+	moon.position.set(5,0,0);
+	earthRotator.add(moon);
+	earthRotator.add(moonLight);
+	earthRotator.position.set(7,2,0);
+	scene.add(earthRotator);
+
+	//Shape that will move around with arrow keys and pgup/pgdown
+	shape = new THREE.Object3D();
+	var shapeComp = new THREE.Mesh( //A rectangular prism 
+		new THREE.BoxGeometry(3,0.5,0.5),
+		new THREE.MeshPhongMaterial( { 
+		emissive: "red",
+		emissiveIntensity: 0.4} )
+	);
+	var shapeComp2 = new THREE.Mesh( //A rectangular prism 
+		new THREE.BoxGeometry(0.5,3,0.5),
+		new THREE.MeshPhongMaterial( { 
+		emissive: "red",
+		emissiveIntensity: 0.4} )
+	);
+	var shapeComp3 = new THREE.Mesh( //A rectangular prism 
+		new THREE.BoxGeometry(0.5,0.5,3),
+		new THREE.MeshPhongMaterial( { 
+		emissive: "red",
+		emissiveIntensity: 0.4} )
+	);
+	//shape.add(shapeComp);
+	//scene.add(shape);
+	shape.add(shapeComp);
+	shape.add(shapeComp2);
+	shape.add(shapeComp3);
+
+	shapeLight = new THREE.PointLight(0xffffff, 0.7);
+	shapeLight.position.set(-5,2,0);
+	shape.add(shapeLight);
+	shape.position.set(-7,2,0);
+	scene.add(shape);
+
+
+	// create some lights and add them to the scene.
+	aboveLight = new THREE.DirectionalLight( "0xffffff", 0.1 ); // Light shining from above
+	scene.add(aboveLight);
+	//var viewpointLight = new THREE.DirectionalLight( 0xffffff, 0.8 );  // a light to shine in the direction the camera faces
+	//viewpointLight.position.set(0,0,1);  // shines down the z-axis
+	//scene.add(viewpointLight);
+	
+	
+}
+
+
+/*  Render the scene.  This is called for each frame of the animation.
+ */
+function render() {
+    renderer.render(scene, camera);
+}
+
+
+/*  When an animation is in progress, this function is called just before rendering each
+ *  frame of the animation, to make any changes necessary in the scene graph to prepare
+ *  for that frame.
+ */
+ var clock = new THREE.Clock(false);  // Keeps track of elapsed time of animation.
+
+function updateForFrame() {
+	var time = clock.getElapsedTime();
+	cube.rotation.y -=0.005; //Rotate in place counterclockwise
+    cube.position.y = 5 + Math.sin(0.75*time);  // up and down motion
+	earth.rotation.y -=0.07; //Rotate the earth in place counterclockwise
+	earthRotator.rotation.y +=0.05; //Rotate the earthRotator in place clockwise
+	earthRotator.position.z = radius*Math.sin(0.25*time);
+	earthRotator.position.x = radius*Math.cos(0.25*time);
+	render();
+
+}
+
+
+//--------------------------- animation support -----------------------------------
+
+/* This function runs the animation by calling updateForFrame() then calling render().
+ * Finally, it arranges for itself to be called again to do the next frame.  When the
+ * value of animating is set to false, this function does not schedule the next frame,
+ * so the animation stops.
+ */
+function doFrame() {
+    if (animating) {
+        updateForFrame();
+        render();
+        requestAnimationFrame(doFrame); 
+	}
+}
+
+
+/* Responds when the setting of the "Animate" checkbox is changed.  This
+ * function will start or stop the animation, depending on its setting.
+ */
+function doAnimateCheckbox() {
+    var anim = document.getElementById("animate").checked;
+	if (anim != animating) {
+		animating = anim;
+		if (animating) {
+			doFrame();
+			clock.start();
+		}
+		else{
+			clock.stop();
+		}
+	}
+}
+
+
+
+//----------------------------- keyboard support ----------------------------------
+
+/*  Responds to user's key press.  Here, it is used to rotate the model.
+ */
+function doKey(event) {
+	var code = event.keyCode;
+	var rotated = true;
+	switch( code ) {
+		//Case for rotating the shape (and its point light)
+		case 65: shape.rotation.y -= 0.06;  break;    // a
+		case 68: shape.rotation.y += 0.06;  break;    // d
+		case 83: shape.rotation.x += 0.06;  break;    // s
+		case 87: shape.rotation.x -= 0.06;  break;    // w
+		case 69: shape.rotation.z += 0.06;  break;    // e
+		case 81: shape.rotation.z -= 0.06;  break;    // q
+
+	    case 37: shape.position.x -= 0.1;  break;    // left arrow
+	    case 39: shape.position.x +=  0.1; break;    // right arrow
+	    case 38: shape.position.y += 0.1;  break;    // up arrow
+	    case 40: shape.position.y -= 0.1;  break;    // down arrow
+	    case 33: shape.position.z -= 0.1;  break;    // page up
+	    case 34: shape.position.z += 0.1;  break;    // page down
+	    default: rotated = false;
+	}
+	if (rotated) {
+		event.preventDefault();  // Prevent keys from scrolling the page.
+		if (!animating) { // (if an animation is running, no need for an extra render)
+			render();
+		}
+	}
+}
+ 
+
+//------------------ handle the radio buttons that select the model-------------------------
+
+/*  Changes the model that is displayed, when the user changes the setting of
+ *  radio buttons that are used to select the model.  The model is reset to
+ *  its initial rotation.
+ */
+
+
+
+function doMoonLightCheckbox() {
+    if (document.getElementById("moonbutton").checked)
+        moon.add(moonLight);
+    else
+        moon.remove(moonLight);
+    base.material.needsUpdate = true; 
+    if (!animating)
+        render();
+}
+
+function doCubeLightCheckbox() {
+    if (document.getElementById("cubebutton").checked)
+        cube.add(cubeLight);
+    else
+        cube.remove(cubeLight);
+    base.material.needsUpdate = true; 
+    if (!animating)
+        render();
+}
+
+function doShapeLightCheckbox() {
+    if (document.getElementById("shapelight").checked)
+        shape.add(shapeLight);
+    else
+        shape.remove(shapeLight);
+    base.material.needsUpdate = true; 
+    if (!animating)
+        render();
+}
+
+
+
+
+//----------------------------------------------------------------------------------
+
+/**
+ *  This init() function is called when by the onload event when the document has loaded.
+ */
+function init() {
+	try {
+	    canvas = document.getElementById("glcanvas");
+		renderer = new THREE.WebGLRenderer( {
+		    canvas: canvas,
+		    antialias: true
+		} );
+	}
+	catch (e) {
+		document.getElementById("canvas-holder").innerHTML =
+		         "<h3><b>Sorry, WebGL is required but is not available.</b><h3>";
+		return;
+	}
+
+	radiusSlider = new SliderCanvas(document.getElementById("slider1"));
+    radiusSlider.addSlider({min:3, max:20, step:0.2, value:2, decimals:1});
+    radiusSlider.draw();
+    radiusSlider.onChange = function() {
+		    // Change the size of the points by modifying the size property of the matrial.
+        radius = radiusSlider.value(0);
+        if (!animating) {
+            render();
+        }
+    };
+	
+	document.addEventListener("keydown", doKey, false);
+	document.getElementById("animate").checked = false;
+	document.getElementById("animate").onchange = doAnimateCheckbox;
+	document.getElementById("moonbutton").checked = true;
+	document.getElementById("moonbutton").onchange = doMoonLightCheckbox;
+	document.getElementById("cubebutton").checked = true;
+	document.getElementById("cubebutton").onchange = doCubeLightCheckbox;
+	document.getElementById("shapelight").checked = true;
+	document.getElementById("shapelight").onchange = doShapeLightCheckbox;
+
+	createWorld();
+	//This section is borrowed from mesh-animation.html
+	controls = new THREE.OrbitControls(camera,canvas);
+    controls.enablePan = true;
+    controls.enableZoom = true;
+    controls.addEventListener("change", render);
+
+	//createWorld();
+	render();
+
+}
+
+</script>
+</head>
+<body onload="init()">
+
+<h2>Project 3: Hugh Hamilton</h2>
+
+<p><b>Use the mouse to circle around, scroll bar to zoom in and out, and hold down shift and click to pan.</b></p>
+<p><b>Use WASD and Q&E to rotate the shape, and the arrow keys and PgUp&PgDn to move the shape through space.</b></p>
+<p><b>Selecting buttons will enable and disable various lights.</b></p>
+<!-- Adapted from a stackexchange comment about how to embed video as a texture -->
+<p><b>Earth distance from the center cube:</b><br><canvas width="270" height="60" id="slider1"></canvas></p>
+<p><label><input type="checkbox" id="animate">Animate</label>
+   <label style="margin-left: 80px"><input type="checkbox" id="moonbutton" name="model">Moonlight</label>
+   <label style="margin-left: 20px"><input type="checkbox" id="cubebutton" name="model">Cube light</label>
+   <label style="margin-left: 20px"><input type="checkbox" id="shapelight" name="model">Shape light</label>
+</p>
+
+<div id="canvas-holder">
+<canvas id="glcanvas" width="600" height="600"></canvas>
+</div>
+
+</body>
+</html>
